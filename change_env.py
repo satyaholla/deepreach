@@ -1,45 +1,56 @@
 environment = './environment.yml'
-failures = './error_message.txt'
+not_installed = './error_message.txt'
 desired_env = './new_environment.yml'
 
+def remove_build(s: str) -> str:
+    '''
+    Removes the build from a string representing a package
+    '''
+    new_s = s[:s.rfind('=')]
+    if '=' not in new_s: return s
+    return new_s
+
+def make_fuzzy(s: str) -> str:
+    '''
+    Changes the == to an = in the package specification
+    '''
+    return s.replace('==', '=', 1)
+
+def make_exact(s: str) -> str:
+    '''
+    Does the opposite of above
+    '''
+    return s.replace('=', '==', 1)
+
 if __name__ == '__main__':
-    with open(failures) as f:
-        old_failure_list =f.read().split('\n')
+    with open(not_installed) as n:
+        not_installed_list = n.read().split('\n')
     with open(environment) as e:
         environment_list = e.read().split('\n')
 
-    failure_list = [failure.replace('==', '=', 1) for failure in old_failure_list]
+    not_installed_list = [make_fuzzy(package) for package in not_installed_list]
 
     new_env_list = environment_list[:]
     matches = 0
     pip_location = 197
-    assert environment_list[pip_location] == '  - pip:'
+    assert 'pip:' in environment_list[pip_location]
 
     not_pip = set(environment_list[:pip_location])
 
-    for failure in failure_list:
-        if failure in not_pip:
-            environment_list.remove(failure)
+    for package in not_installed_list:
+        if package in not_pip:
+            environment_list.remove(package)
             matches += 1
-            environment_list.append('  ' + failure.replace('=', '==', 1))
+            environment_list.append('  ' + remove_build(make_exact(package)))
         else:
-            print('HERE',failure)
-    if matches == len(failure_list): print('YAY')
+            print('The following package was not found in the environment.yml file:', package)
 
     with open(desired_env, 'w') as d:
         d.write('\n'.join(environment_list))
 
-    print(matches)
-    print(len(failure_list))
+    if matches == len(not_installed_list):
+        print(f'All {matches} packages were successfully moved under the \'pip\' section')
+    else:
+        print(f'There were {matches} packages out of {len(not_installed_list)} that were moved under the \'pip\' section.')
+    
     input()
-
-    for val in old_failure_list:
-        new_val = val.replace('==', '=', 1)
-        new_val = new_val.replace('=', '==', 1)
-        if new_val != val:
-            print(val)
-            print(new_val)
-
-    for val in old_failure_list:
-        try: assert '==' in val
-        except: print(val)
