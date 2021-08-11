@@ -1,0 +1,6 @@
+  - cudatoolkit=10.1.243
+  - libgfortran-ng=7.3.0
+  - libgcc-ng=9.1.0
+  - libstdcxx-ng=9.1.0
+  - ld_impl_linux-64=2.33.1
+  - giflib=5.1.9
