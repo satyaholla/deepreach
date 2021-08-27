@@ -17,7 +17,10 @@ class BatchLinear(nn.Linear):
         weight = params['weight']
 
         output = input.matmul(weight.permute(*[i for i in range(len(weight.shape) - 2)], -1, -2))
-        output += bias.unsqueeze(-2)
+        # SATYA: above line changes the last two dimensions of weight: e.g., if weight.shape = (2,3,4,5,1), the new shape becomes (2,3,4,1,5)
+        # In this case, though, I'm wondering why you can't just use input.matmul(output.T), since the weight is only 2 dims.
+        output += bias.unsqueeze(-2) # SATYA: unsqueeze turns the (N,) bias into a (1,N) bias by inserting a new dimension in
+                                     # the index -2 + len(bias.shape) + 1, which is in this case 0.
         return output
 
 
@@ -62,7 +65,7 @@ class FCBlock(nn.Module):
             BatchLinear(in_features, hidden_features), nl
         ))
 
-        for i in range(num_hidden_layers):
+        for i in range(num_hidden_layers): # SATYA: why isn't this num_hidden_layers - 1
             self.net.append(nn.Sequential(
                 BatchLinear(hidden_features, hidden_features), nl
             ))
@@ -105,7 +108,9 @@ class SingleBVPNet(nn.Module):
             params = OrderedDict(self.named_parameters())
 
         # Enables us to compute gradients w.r.t. coordinates
+        # SATYA: I'm guessing usually you only compute gradients w.r.t. weights, but this does it for even the input. Not sure why though
         coords_org = model_input['coords'].clone().detach().requires_grad_(True)
+        # EDIT: yes, you have to set model_input.requires_grad == True. IDK what the clone is for.
         coords = coords_org
 
         output = self.net(coords)
@@ -162,6 +167,8 @@ def init_weights_trunc_normal(m):
             _no_grad_trunc_normal_(m.weight, mean, std, -2 * std, 2 * std)
 
 
+# SATYA: the following methods initialize the tensor weights
+
 def init_weights_normal(m):
     if type(m) == BatchLinear or type(m) == nn.Linear:
         if hasattr(m, 'weight'):
@@ -189,7 +196,7 @@ def init_weights_xavier(m):
 
 
 def sine_init(m):
-    with torch.no_grad():
+    with torch.no_grad(): # SATYA: not sure what this line does.
         if hasattr(m, 'weight'):
             num_input = m.weight.size(-1)
             # See supplement Sec. 1.5 for discussion of factor 30

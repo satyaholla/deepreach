@@ -1,7 +1,7 @@
 import torch
 from torch.autograd import grad
 
-
+# SATYA: don't know what this does, but doesn't seem to be used anywhere else
 def hessian(y, x):
     ''' hessian of y wrt x
     y: shape (meta_batch_size, num_observations, channels)
@@ -44,7 +44,18 @@ def gradient(y, x, grad_outputs=None):
 
 
 def jacobian(y, x):
-    ''' jacobian of y wrt x '''
+    ''' jacobian of y wrt x
+        SATYA: y: (num_batches, num_points, num_outputs) in general
+               x: (num_batches, num_points, num_inputs)
+               jac: (num_batches, num_points, num_outputs, num_inputs)
+        So the jacobian will look like:
+            (dy1/dx1) (dy1/dx2) ...
+            (dy2/dx1) (dy2/dx2)
+            .                   .
+            .                    .
+            .                     .
+
+    '''
     meta_batch_size, num_observations = y.shape[:2]
     jac = torch.zeros(meta_batch_size, num_observations, y.shape[-1], x.shape[-1]).to(y.device) # (meta_batch_size*num_points, 2, 2)
     for i in range(y.shape[-1]):

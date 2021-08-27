@@ -2,6 +2,7 @@ import csv
 import glob
 import math
 import os
+from time import time
 
 import matplotlib.colors as colors
 import numpy as np
@@ -58,8 +59,8 @@ class ReachabilityMultiVehicleCollisionSourceNE(Dataset):
     def __init__(self, numpoints,
      collisionR=0.25, velocity=0.6, omega_max=1.1,
      pretrain=False, tMin=0.0, tMax=0.5, counter_start=0, counter_end=100e3, 
-     numEvaders=1, pretrain_iters=2000, angle_alpha=1.0, time_alpha=1.0,
-     num_src_samples=1000):
+     numEvaders=1, pretrain_iters=2000, angle_alpha=1.0, time_alpha=1.0, # SATYA: not sure what this angle alpha does
+     num_src_samples=1000):                                              # or what num_src_samples does
         super().__init__()
         torch.manual_seed(0)
 
@@ -91,30 +92,38 @@ class ReachabilityMultiVehicleCollisionSourceNE(Dataset):
         self.full_count = counter_end 
 
     def __len__(self):
-        return 1
+        return 1 # SATYA: this is really weird, maybe a bug in the code? If we set length to 1 always for the dataset, batches seem not to work.
 
     def __getitem__(self, idx):
         start_time = 0.  # time to apply  initial conditions
 
         # uniformly sample domain and include coordinates where source is non-zero 
-        coords = torch.zeros(self.numpoints, self.num_states).uniform_(-1, 1)
+        coords = torch.zeros(self.numpoints, self.num_states).uniform_(-1, 1) # SATYA: this creates a 65K by 3*n tensor where each row
+                                                                              # is a single random coordinate of the scaled state space
 
         if self.pretrain:
             # only sample in time around the initial condition
             # time = torch.zeros(self.numpoints, 1).uniform_(start_time - 0.001, start_time + 0.001)
             time = torch.ones(self.numpoints, 1) * start_time
-            coords = torch.cat((time, coords), dim=1)
+            coords = torch.cat((time, coords), dim=1) # SATYA: this adds a bunch of 0's to the start of coords (why is the pretraining
+                                                      # using t = 0 as the "initial condition" rather than t = tMax?)
         else:
             # slowly grow time values from start time
             # this currently assumes start_time = tMin and max time value is tMax
             time = self.tMin + torch.zeros(self.numpoints, 1).uniform_(0, (self.tMax-self.tMin) * (self.counter / self.full_count))
-        
+            # SATYA: the above line makes the time coordinate concatenated to the 65K coords randomly sampled from [tMin, tCurrent], as
+            # tCurrent grows from tMin to tMax
+
             coords = torch.cat((time, coords), dim=1)
 
             # make sure we always have training samples at the initial time
             coords[-self.N_src_samples:, 0] = start_time
 
         # set up the initial value function
+
+        # SATYA: the following block of code creates a 65K x 1 tensor called boundary_values
+        # representing the min distance between any two vehicles (pursuers and evaders both)
+
         # Collision cost between the pursuer and the evaders
         boundary_values = torch.norm(coords[:, 1:3] - coords[:, 3:5], dim=1, keepdim=True) - self.collisionR
         for i in range(1, self.numEvaders):
@@ -129,11 +138,14 @@ class ReachabilityMultiVehicleCollisionSourceNE(Dataset):
                 boundary_values = torch.min(boundary_values, boundary_values_current)
 
         # normalize the value function
+        # SATYA: not tooo sure what this does
         norm_to = 0.02
-        mean = 0.25
+        mean = 0.25 # why is the mean of the boundary values .25? Shouldn't it generally depend on num_evaders?
         var = 0.5
         boundary_values = (boundary_values - mean)*norm_to/var
         
+        # SATYA: dirichlet mask seems to create 65K x 1 tensor of Trues, not sure why. EDIT: I think maybe the
+        # dirichlet mask determines which coords to apply only h1 to, and which to apply h1 + lam*h2
         if self.pretrain:
             dirichlet_mask = torch.ones(coords.shape[0], 1) > 0
         else:
@@ -228,5 +240,73 @@ class ReachabilityAir3DSource(Dataset):
 
         if self.pretrain and self.pretrain_counter == self.pretrain_iters:
             self.pretrain = False
+
+        return {'coords': coords}, {'source_boundary_values': boundary_values, 'dirichlet_mask': dirichlet_mask}
+
+no_flow = lambda x,y,z,t: torch.tensor([0,0,0])
+
+class ReachabilityUnderwaterPathPlanning(Dataset):
+    def __init__(self, numpoints, flow=no_flow, velocity=0.6,
+        pretrain=False, tMin=0.0, tMax=0.5, counter_start=0, counter_end=100e3, 
+        pretrain_iters=2000, num_src_samples=1000, seed=None, length=1):
+        super().__init__()
+
+        # SYSTEM PARAMETERS
+        self.velocity = velocity
+        self.flow = flow
+        self.tMin = tMin
+        self.tMax = tMax
+        self.num_states = 3
+
+        # TRAINING PARAMETERS
+        self.numpoints = numpoints
+        self.length = length
+        self.counter = counter_start
+        self.full_count = counter_end 
+        self.N_src_samples = num_src_samples
+        
+        self.pretrain = pretrain
+        self.pretrain_counter = 0
+        self.pretrain_iters = pretrain_iters
+
+        # Set the seed
+        if seed is None: seed = time.time()
+        torch.manual_seed(seed)
+
+    def __len__(self):
+        return self.length
+
+    def __getitem__(self, idx):
+        start_time = 0.  # time to apply  initial conditions
+
+        # uniformly sample domain and include coordinates where source is non-zero 
+        coords = torch.zeros(self.numpoints, self.num_states).uniform_(-1, 1)
+
+        if self.pretrain:
+            # only sample in time around the initial condition
+            time = torch.ones(self.numpoints, 1) * start_time
+            dirichlet_mask = torch.ones(coords.shape[0], 1) > 0
+            self.pretrain_counter += 1
+            if self.pretrain_counter == self.pretrain_iters: self.pretrain = False
+        else:
+            # slowly grow time values from start time
+            # this currently assumes start_time = 0 and max time value is tMax
+            time = self.tMin + torch.zeros(self.numpoints, 1).uniform_(0, (self.tMax-self.tMin) * (self.counter / self.full_count))
+            
+            # make sure we always have training samples at the initial time
+            time[-self.N_src_samples:, 0] = start_time
+            dirichlet_mask = (coords[:, [0]] == start_time) # only enforce initial conditions around start_time
+            if self.counter < self.full_count: self.counter += 1
+
+        coords = torch.cat((time, coords), dim=1)
+        # set up the initial value function
+        boundary_values = torch.norm(coords[:, 1:], dim=1, keepdim=True)
+
+        # normalize the value function
+        norm_to = 0.02
+        mean = 0.25
+        var = 0.5
+
+        boundary_values = (boundary_values - mean)*norm_to/var
 
         return {'coords': coords}, {'source_boundary_values': boundary_values, 'dirichlet_mask': dirichlet_mask}

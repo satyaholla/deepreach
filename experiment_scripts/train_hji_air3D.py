@@ -80,7 +80,7 @@ dataloader = DataLoader(dataset, shuffle=True, batch_size=opt.batch_size, pin_me
 
 model = modules.SingleBVPNet(in_features=4, out_features=1, type=opt.model, mode=opt.mode,
                              final_layer_factor=1., hidden_features=opt.num_nl, num_hidden_layers=opt.num_hl)
-model.cuda()
+model.cpu()
 
 # Define the loss
 loss_fn = loss_functions.initialize_hji_air3D(dataset, opt.minWith)
@@ -111,7 +111,7 @@ def val_fn(model, ckpt_dir, epoch):
       theta_coords = torch.ones(mgrid_coords.shape[0], 1) * thetas[j]
       theta_coords = theta_coords / (opt.angle_alpha * math.pi)
       coords = torch.cat((time_coords, mgrid_coords, theta_coords), dim=1) 
-      model_in = {'coords': coords.cuda()}
+      model_in = {'coords': coords.cpu()}
       model_out = model(model_in)['model_out']
 
       # Detatch model ouput and reshape

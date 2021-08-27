@@ -21,9 +21,10 @@ def initialize_hji_MultiVehicleCollisionNE(dataset, minWith):
     def hji_MultiVehicleCollision(model_output, gt):
         source_boundary_values = gt['source_boundary_values']
         x = model_output['model_in']  # (meta_batch_size, num_points, 4)
+        # SATYA: why are there only 4? Shouldn't it be numEvaders*3 + 4
         y = model_output['model_out']  # (meta_batch_size, num_points, 1)
         dirichlet_mask = gt['dirichlet_mask']
-        batch_size = x.shape[1]
+        batch_size = x.shape[1] # SATYA: going off the above code, isn't x.shape = (meta_batch_size, num_points, 4)? So x.shape[0]
 
         if torch.all(dirichlet_mask):
             diff_constraint_hom = torch.Tensor([0])
